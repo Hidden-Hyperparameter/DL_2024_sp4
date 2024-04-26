@@ -1,0 +1,4 @@
+huggingface-hub==0.22.2
+transformers==4.40.1
+flash-attn==2.5.7
+peft==0.10.0

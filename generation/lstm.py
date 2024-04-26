@@ -21,7 +21,12 @@ class LMModel(BaseModel):
         ##############################################################################
         #                  TODO: You need to complete the code here                  #
         ##############################################################################
-        raise NotImplementedError()
+        self.dict = dictionary
+        self.L = 100
+        self.embedding_dim = args.embedding_dim # 512
+        self.hidden_size=args.hidden_size # 512
+        self.num_layers = args.num_layers # 6
+        self.lstm = nn.LSTM(self.embedding_dim,self.hidden_size,self.num_layers,proj_size=self.len_dict)
         ##############################################################################
         #                              END OF YOUR CODE                              #
         ##############################################################################
@@ -40,7 +45,7 @@ class LMModel(BaseModel):
         ##############################################################################
         #                  TODO: You need to complete the code here                  #
         ##############################################################################
-        raise NotImplementedError()
+        logits,_ = self.lstm(source)
         ##############################################################################
         #                              END OF YOUR CODE                              #
         ##############################################################################
@@ -73,7 +78,17 @@ class LMModel(BaseModel):
         ##############################################################################
         #                  TODO: You need to complete the code here                  #
         ##############################################################################
-        raise NotImplementedError()
+        x = self.dict.index(prefix)
+        i = 0
+        outputs = ""
+        while i < max_len:
+            x = self.logits(x)
+            ind = torch.argmax(x)
+            if ind == self.dict.eos():
+                break
+            outputs += self.dict[ind]
+            i += 1
+        return outputs
         ##############################################################################
         #                              END OF YOUR CODE                              #
         ##############################################################################
