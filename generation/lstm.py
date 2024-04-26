@@ -22,11 +22,13 @@ class LMModel(BaseModel):
         #                  TODO: You need to complete the code here                  #
         ##############################################################################
         self.dict = dictionary
+        self.dict_len = len(dictionary)
+        # print(len(self.dict))
         self.L = 100
-        self.embedding_dim = args.embedding_dim # 512
+        self.embedding_dim = self.dict_len#args.embedding_dim # 512
         self.hidden_size=args.hidden_size # 512
         self.num_layers = args.num_layers # 6
-        self.lstm = nn.LSTM(self.embedding_dim,self.hidden_size,self.num_layers,proj_size=self.len_dict)
+        self.lstm = nn.LSTM(self.embedding_dim,self.hidden_size,self.num_layers)
         ##############################################################################
         #                              END OF YOUR CODE                              #
         ##############################################################################
@@ -45,7 +47,12 @@ class LMModel(BaseModel):
         ##############################################################################
         #                  TODO: You need to complete the code here                  #
         ##############################################################################
-        logits,_ = self.lstm(source)
+        # print('source.shape',source.shape)
+        # print('source',source)
+        src_embedded = F.one_hot(source,num_classes=self.dict_len).to(torch.float)
+        # source = torch.scatter(torch.ones())
+        logits,_ = self.lstm(src_embedded)
+        print('logits return')
         ##############################################################################
         #                              END OF YOUR CODE                              #
         ##############################################################################
