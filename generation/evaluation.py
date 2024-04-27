@@ -20,6 +20,8 @@ def evaluate(model, dataset):
     for samples in dataloader:
         bsz = len(samples['lengths'])
         logits = model.logits(**samples)
+        # print('target shape,',samples["target"].shape)
+        # print('target,',samples["target"])
         lprobs = F.log_softmax(logits, dim=-1).view(-1, logits.size(-1))
         entropy = F.nll_loss(lprobs,
                              samples["target"].view(-1),
@@ -36,17 +38,18 @@ def evaluate(model, dataset):
 
 if __name__ == "__main__":
     basedir = os.path.dirname(os.path.abspath(__file__))
-    for task in ["lm", "seq2seq"]:
+    for task in ["lm"]:
         Dataset = LMDataset if task == "lm" else Seq2SeqDataset
         try:
             dataset = Dataset(split='test', device="cuda")
         except FileNotFoundError:
             dataset = Dataset(split="valid", device="cuda")
-        for model_type in ["lstm", "transformer"]:
-            model_name = "{}_{}.pt".format(model_type, task)
+        for model_type in ["lstm"]:
+            model_name = "lstm_50.pt"#"{}_{}.pt".format(model_type, task)
 
             try:
-                model = torch.load(os.path.join(basedir, "models", model_name), map_location='cpu').to('cuda')
+                model = torch.load(os.path.join(basedir, "models_lstm_lm", model_name), map_location='cpu').to('cuda')
+                # model = torch.load(os.path.join(basedir, "models", model_name), map_location='cpu').to('cuda')
             except FileNotFoundError as e:
                 print(e)
                 continue

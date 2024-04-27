@@ -15,6 +15,7 @@ from evaluation import evaluate
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--embedding-dim", default=512, type=int)
+    parser.add_argument("--device", default='cuda:0', type=str)
     parser.add_argument("--hidden-size", default=512, type=int)
     parser.add_argument("--num-layers", default=6, type=int)
     parser.add_argument("--batch-size", default=64, type=int)
@@ -34,8 +35,8 @@ def get_args():
 def train(args):
     args.save_dir += "_" + args.model_type + "_lm" if not args.seq2seq else "_seq2seq"
     os.makedirs(args.save_dir, exist_ok=True)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-
+    # device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = args.device
     if args.model_type == "lstm":
         from lstm import LMModel, Seq2SeqModel
     elif args.model_type == "transformer":
@@ -58,7 +59,7 @@ def train(args):
                               collate_fn=train_set.collate_fn,
                               shuffle=True)
 
-    evaluate(model, valid_set)
+    # evaluate(model, valid_set)
     for epoch in range(args.num_epoch):
         model.train()
         with tqdm(train_loader, desc="training") as pbar:

@@ -45,7 +45,14 @@ class LMModel(nn.Module):
         ##############################################################################
         #                  TODO: You need to complete the code here                  #
         ##############################################################################
-        raise NotImplementedError()
+        self.dict_len = len(dictionary) # 7120
+        self.embedding_dim = args.embedding_dim # 512
+        self.hidden_size=args.hidden_size # 512
+        self.num_layers = args.num_layers # 6
+        self.embedding = nn.Linear(self.dict_len,self.hidden_size)
+        self.linear = nn.Linear(self.hidden_size*self.num_layers,self.dict_len)
+        self.attention = Attention(self.embedding_dim,num_heads=2,encoder_decoder_attention=False)
+
         ##############################################################################
         #                              END OF YOUR CODE                              #
         ##############################################################################
@@ -64,6 +71,7 @@ class LMModel(nn.Module):
         ##############################################################################
         #                  TODO: You need to complete the code here                  #
         ##############################################################################
+        
         raise NotImplementedError()
         ##############################################################################
         #                              END OF YOUR CODE                              #
@@ -641,7 +649,8 @@ class Attention(nn.Module):
         ##############################################################################
         #                  TODO: You need to complete the code here                  #
         ##############################################################################
-        raise NotImplementedError()
+        
+        attn_output = None
         ##############################################################################
         #                              END OF YOUR CODE                              #
         ##############################################################################
