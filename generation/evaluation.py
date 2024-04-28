@@ -38,17 +38,17 @@ def evaluate(model, dataset):
 
 if __name__ == "__main__":
     basedir = os.path.dirname(os.path.abspath(__file__))
-    for task in ["lm"]:
+    for task in ["seq2seq"]:
         Dataset = LMDataset if task == "lm" else Seq2SeqDataset
         try:
             dataset = Dataset(split='test', device="cuda")
         except FileNotFoundError:
             dataset = Dataset(split="valid", device="cuda")
-        for model_type in ["lstm"]:
-            model_name = "lstm_50.pt"#"{}_{}.pt".format(model_type, task)
+        for model_type in ["transformer"]:
+            model_name = "transformer_3.pt"#"{}_{}.pt".format(model_type, task)
 
             try:
-                model = torch.load(os.path.join(basedir, "models_lstm_lm", model_name), map_location='cpu').to('cuda')
+                model = torch.load(os.path.join(basedir, "models_seq2seq", model_name), map_location='cpu').to('cuda')
                 # model = torch.load(os.path.join(basedir, "models", model_name), map_location='cpu').to('cuda')
             except FileNotFoundError as e:
                 print(e)

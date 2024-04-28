@@ -45,14 +45,22 @@ class LMModel(nn.Module):
         ##############################################################################
         #                  TODO: You need to complete the code here                  #
         ##############################################################################
-        self.dict_len = len(dictionary) # 7120
-        self.embedding_dim = args.embedding_dim # 512
-        self.hidden_size=args.hidden_size # 512
-        self.num_layers = args.num_layers # 6
-        self.embedding = nn.Linear(self.dict_len,self.hidden_size)
-        self.linear = nn.Linear(self.hidden_size*self.num_layers,self.dict_len)
-        self.attention = Attention(self.embedding_dim,num_heads=2,encoder_decoder_attention=False)
-
+        self.config = Config(
+            vocab_size=len(dictionary),
+            max_position_embeddings=100,
+            n_embed=args.embedding_dim,
+            n_layer=args.num_layers,
+            n_head=8,
+            pad_token_id=self.padding_idx,
+            ffn_dim=args.hidden_size,
+        )
+        self.embed_tokens = nn.Embedding(self.config.vocab_size,
+                                    self.config.n_embed, self.padding_idx)
+        print(self.config)
+        self.decoder = TransformerDecoder(self.config,self.embed_tokens)
+        self.out_proj = nn.Linear(args.embedding_dim, len(dictionary))
+        self.embedding_dim = args.embedding_dim
+        self.device = args.device
         ##############################################################################
         #                              END OF YOUR CODE                              #
         ##############################################################################
@@ -71,8 +79,23 @@ class LMModel(nn.Module):
         ##############################################################################
         #                  TODO: You need to complete the code here                  #
         ##############################################################################
-        
-        raise NotImplementedError()
+        decoder_input_ids, decoder_padding_mask, causal_mask  = _prepare_decoder_inputs(
+            self.config,
+            source,
+            decoder_input_ids=source,
+            causal_mask_dtype=self.embed_tokens.weight.dtype,
+        )
+        encoder_hd_stts = torch.zeros(list(source.shape)+[self.embedding_dim]).to(self.device)
+        logits = self.decoder(
+            input_ids = source,
+            encoder_hidden_states = encoder_hd_stts,
+            encoder_padding_mask=None,
+            decoder_padding_mask=decoder_padding_mask,
+            decoder_causal_mask=causal_mask,
+        )
+        logits = self.out_proj(logits)
+        # print(logits.shape)
+        # raise NotImplementedError()
         ##############################################################################
         #                              END OF YOUR CODE                              #
         ##############################################################################
@@ -136,8 +159,13 @@ class Seq2SeqModel(nn.Module):
         self.out_proj = nn.Linear(args.embedding_dim, len(dictionary))
 
     def logits(self, source, prev_outputs, **unused):
+        # print('in function logits:')
+        # print(source.shape)
+        # print(prev_outputs.shape)
         hidden = self.endecoder(source, prev_outputs)
         logits = self.out_proj(hidden)
+        # print(hidden.shape)
+        # print(logits.shape)
         return logits
 
     def get_loss(self, source, prev_outputs, target, reduce=True, **unused):
@@ -168,7 +196,41 @@ class Seq2SeqModel(nn.Module):
         ##############################################################################
         #                  TODO: You need to complete the code here                  #
         ##############################################################################
-        raise NotImplementedError()
+        pad_len = 20-len(inputs)
+        inputs = self.dictionary.encode_line(inputs).to(torch.long).reshape(1,-1).cuda()
+        if pad_len > 0:
+            inputs = torch.cat((inputs,torch.ones([pad_len],dtype=torch.long).reshape(1,-1).cuda()),dim=1)
+        outputs = self.dictionary[self.dictionary.bos()]
+        
+        def embedd(index):
+            return torch.tensor([index]).reshape(1,1).cuda()
+        prev_embedded = embedd(self.dictionary.bos()) # batch, length, embedded_dim
+        # print('decoder - h.shape',h.shape) 
+        bests = [(0,outputs,prev_embedded,False)]
+        
+        for round in range(1,max_len):
+            # print('round',round)
+            new_bests = []
+            print(bests)
+            for prob,outputs,history,done in bests:
+                if done:
+                    new_bests.append((prob,outputs,history,done))
+                    continue
+                hidden = self.endecoder(inputs,history)
+                logits = self.out_proj(hidden)[0,-1,:]
+                logits = F.log_softmax(logits,dim=-1) # log prob
+                for _ in range(beam_size):
+                    ind = torch.argmax(logits,dim=-1).item()
+                    new_outputs = outputs+self.dictionary[ind]
+                    new_prob = (prob + logits[ind].item())*(round/(round+1))
+                    print('shape',history.shape)
+                    new_history = torch.cat((history,embedd(ind)),dim=1)
+                    print('new shape',new_history.shape)
+                    logits[ind] = -1e10
+                    new_bests.append((new_prob,new_outputs,new_history,True if ind == self.dictionary.eos() else False))
+            bests = sorted(new_bests)[-beam_size:] 
+            # print(bests)
+        return bests[-1][1]
         ##############################################################################
         #                              END OF YOUR CODE                              #
         ##############################################################################
@@ -552,7 +614,9 @@ class TransformerDecoder(nn.Module):
             decoder_padding_mask: for ignoring pad tokens
             decoder_causal_mask: mask the future tokens
         """
-
+        # print(encoder_hidden_states.shape)
+        # print(input_ids.shape)
+        # print(encoder_padding_mask.shape)
         # embed positions
         positions = self.embed_positions(input_ids)
 
@@ -606,9 +670,9 @@ class Attention(nn.Module):
     ):
         super().__init__()
         self.embed_dim = embed_dim
-        self.num_heads = num_heads
+        self.num_heads = num_heads = 1
         self.dropout = dropout
-        self.head_dim = embed_dim // num_heads
+        self.head_dim = embed_dim // num_heads 
         assert self.head_dim * num_heads == self.embed_dim, "embed_dim must be divisible by num_heads"
         self.scaling = self.head_dim**-0.5
 
@@ -620,6 +684,9 @@ class Attention(nn.Module):
         self.cache_key = "encoder_decoder" if self.encoder_decoder_attention else "self"
 
     def _shape(self, tensor, seq_len, bsz):
+        # tensor.shape: len, batch, d
+        # return shape: len, batch*h, d/h
+        # print(f'I have {self.num_heads} heads') # 8
         return tensor.contiguous().view(seq_len, bsz * self.num_heads,
                                         self.head_dim).transpose(0, 1)
 
@@ -649,8 +716,50 @@ class Attention(nn.Module):
         ##############################################################################
         #                  TODO: You need to complete the code here                  #
         ##############################################################################
+        # print('query.shape',query.shape)
+        # print('key.shape',key.shape)
+        # attn mask: j>i: -inf
+        seq_len2,batch_size,embed_dim = query.shape
+        seq_len1 = key.shape[0]
+        # print('seq_len',seq_len)
+        # print('batch_size',batch_size)
+        # print('embed_dim',embed_dim)
+        # print('num heads',self.num_heads)
+        # print('self.embedded_dim',self.embed_dim)
+        value = self.v_proj(key) # original; (seq_len1, batch_size, embed_dim)
+        key = self.k_proj(key)
+        if key_padding_mask is not None:
+            key = key * key_padding_mask.transpose(0,1).unsqueeze(2)
+            value = value * key_padding_mask.transpose(0,1).unsqueeze(2)
+        query = self.q_proj(query)
+        # print('value.shape',value.shape)
+
+        value = self._shape(value,seq_len1,batch_size) # to: (bsz * self.num_heads, seq_len, self.head_dim)
+        key = self._shape(key,seq_len1,batch_size)
+        query = self._shape(query,seq_len2,batch_size)
+
         
-        attn_output = None
+        # for i in range(seq_len):
+        #     for j in range(seq_len):
+        #         eij[:,i,j]=(key[i]*query[j]).sum(dim=-1) * self.scaling
+        #         eij[:,i,j] *= attn_mask[i,j]
+        # print('key.shape',key.shape)
+        # print('query.shape',query.shape)
+        eij_new = torch.einsum('bie,bje->bij',query,key) # (seq_len2,seq_len1)
+        # print('eij_new.shape',eij_new.shape)
+        eij_new = eij_new  * self.scaling
+        # print(eij_new)
+        if attn_mask is not None:
+            eij_new = eij_new + attn_mask[:seq_len2,:seq_len1].unsqueeze(0)
+        # print(eij_new)
+        eij_new = F.softmax(eij_new,dim=-1) # (bsz * self.num_heads, seq_len2, seq_len1)
+        # print('value.shape',value.shape) # (bsz * self.num_heads, seq_len, self.head_dim)
+        # print('eij_new.shape',eij_new.shape) # (bsz * self.num_heads, seq_len, self.head_dim)
+        attn_output = torch.einsum('bjd,bij->bid',value,eij_new)#.reshape(batch_size,seq_len2,-1)
+        # out[i] = value[j] attn_score[ij]
+        # print('attn_output.shape',attn_output.shape)
+        attn_output = self.out_proj(attn_output).transpose(0,1)
+        # print(attn_output.shape)
         ##############################################################################
         #                              END OF YOUR CODE                              #
         ##############################################################################
