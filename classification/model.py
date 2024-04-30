@@ -12,7 +12,7 @@ class Net(nn.Module):
         ##############################################################################
         #                  TODO: You need to complete the code here                  #
         ##############################################################################
-        raise NotImplementedError()
+        self.load_llm()
         ##############################################################################
         #                              END OF YOUR CODE                              #
         ##############################################################################
@@ -21,7 +21,9 @@ class Net(nn.Module):
         ##############################################################################
         #                  TODO: You need to complete the code here                  #
         ##############################################################################
-        raise NotImplementedError()
+        import torch
+        from transformers import AutoModelForCausalLM
+        self.llm = AutoModelForCausalLM.from_pretrained('openbmb/MiniCPM-2B-dpo-bf16',trust_remote_code=True,torch_dtype=torch.bfloat16)
         ##############################################################################
         #                              END OF YOUR CODE                              #
         ##############################################################################
@@ -40,7 +42,8 @@ class Net(nn.Module):
         # ##############################################################################
         #                  TODO: You need to complete the code here                  #
         ##############################################################################
-        raise NotImplementedError()
+        return self.llm.logits(**kwargs)
+        # raise NotImplementedError()
         ##############################################################################
         #                              END OF YOUR CODE                              #
         ##############################################################################

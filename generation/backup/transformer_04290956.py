@@ -45,84 +45,23 @@ class LMModel(nn.Module):
         ##############################################################################
         #                  TODO: You need to complete the code here                  #
         ##############################################################################
-        import time
-        self.date = time.strftime(r'%m%d-%H%M')
-        self.embed_dim = args.embedding_dim
+        self.config = Config(
+            vocab_size=len(dictionary),
+            max_position_embeddings=100,
+            n_embed=args.embedding_dim,
+            n_layer=args.num_layers,
+            n_head=8,
+            pad_token_id=self.padding_idx,
+            ffn_dim=args.hidden_size,
+            attention_dropout = 0.1
+        )
+        self.embed_tokens = nn.Embedding(self.config.vocab_size,
+                                    self.config.n_embed, self.padding_idx)
+        print(self.config)
+        self.decoder = TransformerDecoder(self.config,self.embed_tokens)
+        self.out_proj = nn.Linear(args.embedding_dim, len(dictionary))
+        self.embedding_dim = args.embedding_dim
         self.device = args.device
-        self.embed_tokens = nn.Embedding(len(dictionary),
-                                    self.embed_dim, self.padding_idx)
-        self.num_attns = 8
-        self.self_attns = nn.ModuleList([Attention(
-            embed_dim=self.embed_dim,
-            num_heads=2,
-            dropout=0.1,
-        ) for _ in range(self.num_attns)])
-
-        self.dropout = 0.1
-        self.activation_fn = F.relu
-        self.activation_dropout = 0
-
-        self.self_attn_layer_norms = nn.ModuleList([
-            LayerNorm(self.embed_dim) for _ in range(self.num_attns)
-        ])
-
-        self.fcs = nn.ModuleList([
-           nn.Sequential(
-                nn.Linear(self.embed_dim,self.embed_dim),
-                nn.ReLU(),
-                nn.Dropout(0.2),
-                nn.Linear(self.embed_dim, self.embed_dim),
-           ) for _ in range(self.num_attns)
-        ])
-        # self.fc2 = nn.Linear(config.ffn_dim, )
-        self.final_layer_norms = nn.ModuleList(
-            [LayerNorm(self.embed_dim) for _ in range(self.num_attns)]
-        )
-        self.out_proj = nn.Sequential(
-            nn.Linear(self.embed_dim,len(self.dictionary)),
-            # nn.Dropout(0.2),
-            # nn.ReLU(),
-            # nn.Linear(self.embed_dim,len(self.dictionary))
-        )
-        self.layernorm_embedding = LayerNorm(self.embed_dim)
-
-        self.layer_norm = LayerNorm(self.embed_dim) 
-        
-        def _init_weights(module):
-            std = 0.02
-            if isinstance(module, nn.Linear):
-                module.weight.data.normal_(mean=0.0, std=std)
-                if module.bias is not None:
-                    module.bias.data.zero_()
-            elif isinstance(module, SinusoidalPositionalEmbedding):
-                pass
-            elif isinstance(module, nn.Embedding):
-                module.weight.data.normal_(mean=0.0, std=std)
-                if module.padding_idx is not None:
-                    module.weight.data[module.padding_idx].zero_()
-        self.apply(_init_weights)
-       
-        self.embed_scale = nn.Parameter(torch.tensor([1.0]))
-
-
-        # position embedding
-        self.position_embedding = nn.Embedding(100,embedding_dim=self.embed_dim,padding_idx=1).requires_grad_(False)
-        def _init_weight_sin(out: nn.Parameter):
-            """Identical to the XLM create_sinusoidal_embeddings except features are not interleaved.
-            The cos features are in the 2nd half of the vector. [dim // 2:]
-            """
-            n_pos, dim = out.shape
-            position_enc = np.array(
-                [[pos / np.power(10000, 2 * (j // 2) / dim) for j in range(dim)]
-                for pos in range(n_pos)])
-            out[:, 0:dim // 2] = torch.FloatTensor(np.sin(
-                position_enc[:, 0::2]))  # This line breaks for odd n_pos
-            out[:, dim // 2:] = torch.FloatTensor(np.cos(position_enc[:, 1::2]))
-            out.detach_()
-            out.requires_grad = False
-            return out
-        self.position_embedding.weight = _init_weight_sin(self.position_embedding.weight)
-        
         ##############################################################################
         #                              END OF YOUR CODE                              #
         ##############################################################################
@@ -141,69 +80,21 @@ class LMModel(nn.Module):
         ##############################################################################
         #                  TODO: You need to complete the code here                  #
         ##############################################################################
-        
-        # prepare decoder padding mask
-        
-        def __prepare_decoder_inputs(
-                            decoder_input_ids,
-                            causal_mask_dtype=torch.float32):
-            pad_token_id = 1
-
-            bsz, tgt_len = decoder_input_ids.size()
-
-            decoder_padding_mask = make_padding_mask(decoder_input_ids, pad_token_id)
-
-            # never mask leading token, even if it is pad
-            if decoder_padding_mask is not None and decoder_padding_mask.shape[1] > 1:
-                decoder_padding_mask[:, 0] = decoder_padding_mask[:, 1]
-
-            tmp = fill_with_neg_inf(torch.zeros(tgt_len, tgt_len))
-            mask = torch.arange(tmp.size(-1))
-            tmp.masked_fill_(mask < (mask + 1).view(tmp.size(-1), 1), 0)
-            causal_mask = tmp.to(dtype=causal_mask_dtype,
-                                device=decoder_input_ids.device)
-            return decoder_input_ids, decoder_padding_mask, causal_mask
-        
-        decoder_input_ids, decoder_padding_mask, causal_mask=__prepare_decoder_inputs(source)
-
-        # add position embeddings
-        bsz,seq_len = source.shape[:2]
-
-        positions = torch.arange(seq_len,
-                                 dtype=torch.long,
-                                 device=self.position_embedding.weight.device)
-        positions = self.position_embedding(positions)
-
-        x = self.embed_tokens(decoder_input_ids) *self.embed_scale + positions
-        x = self.layernorm_embedding(x)
-        x = F.dropout(x, p=self.dropout, training=self.training)
-        x = x.transpose(0,1)
-
-        # self attention
-        for i in range(self.num_attns):
-            # attention
-            if torch.rand([1]).item()<0.1 and self.training: # layer dropout
-                # print('dropout')
-                continue
-            residual = x
-            x = self.self_attns[i](
-                query=x,
-                key=x,
-                key_padding_mask=decoder_padding_mask,
-                attn_mask=causal_mask,
-            )
-            x = F.dropout(x, p=self.dropout, training=self.training)
-            x = (residual + x)
-            x = self.self_attn_layer_norms[i](x)
-            # feed-forward
-            residual = x
-            x = self.fcs[i](x)
-            x = F.dropout(x, p=self.dropout, training=self.training)
-            x = (residual + x)
-            x = self.final_layer_norms[i](x)
-        
-        x = self.layer_norm(x)
-        logits = self.out_proj(x.transpose(0,1))
+        decoder_input_ids, decoder_padding_mask, causal_mask  = _prepare_decoder_inputs(
+            self.config,
+            source,
+            decoder_input_ids=source,
+            causal_mask_dtype=self.embed_tokens.weight.dtype,
+        )
+        encoder_hd_stts = torch.zeros(list(source.shape)+[self.embedding_dim]).to(self.device)#.cuda()#.to(self.device)
+        logits = self.decoder(
+            input_ids = source,
+            encoder_hidden_states = encoder_hd_stts,
+            encoder_padding_mask=None,
+            decoder_padding_mask=decoder_padding_mask,
+            decoder_causal_mask=causal_mask,
+        )
+        logits = self.out_proj(logits)
         # raise NotImplementedError()
         ##############################################################################
         #                              END OF YOUR CODE                              #
@@ -239,7 +130,7 @@ class LMModel(nn.Module):
         ##############################################################################
         prefix_sp = [c for c in prefix]
         print(prefix_sp)
-        x = torch.tensor([self.dictionary.bos()]+[self.dictionary.index(c) for c in prefix_sp]).reshape(1,-1).cuda()
+        x = torch.tensor([self.dictionary.bos()]+[self.dictionary.index(c) for c in prefix_sp]).reshape(1,-1).to(x.device)#.cuda()
         outputs = "<s>"+prefix
         
         if beam_size == None:
@@ -291,9 +182,10 @@ class Seq2SeqModel(nn.Module):
             max_position_embeddings=100,
             n_embed=args.embedding_dim,
             n_layer=args.num_layers,
-            n_head=8,
+            n_head=4,
             pad_token_id=self.padding_idx,
             ffn_dim=args.hidden_size,
+            attention_dropout = 0.1
         )
         embed_tokens = nn.Embedding(self.config.vocab_size,
                                     self.config.n_embed, self.padding_idx)
@@ -817,7 +709,7 @@ class Attention(nn.Module):
     ):
         super().__init__()
         self.embed_dim = embed_dim
-        self.num_heads = num_heads
+        self.num_heads = num_heads = 1
         self.dropout = dropout
         self.head_dim = embed_dim // num_heads 
         assert self.head_dim * num_heads == self.embed_dim, "embed_dim must be divisible by num_heads"
@@ -907,7 +799,7 @@ class Attention(nn.Module):
         attn_output = torch.einsum('bjd,bij->bid',value,eij_new)#.reshape(batch_size,seq_len2,-1)
         # out[i] = value[j] attn_score[ij]
         # print('attn_output.shape',attn_output.shape)
-        attn_output = self.out_proj(attn_output.transpose(0,1).reshape(seq_len2,batch_size,embed_dim))
+        attn_output = self.out_proj(attn_output).transpose(0,1)
         # print(attn_output.shape)
         ##############################################################################
         #                              END OF YOUR CODE                              #

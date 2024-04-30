@@ -157,25 +157,17 @@ class Seq2SeqModel(BaseModel):
         ##############################################################################
         #                  TODO: You need to complete the code here                  #
         ##############################################################################
-        self.date = '04292004'
         self.dict = dictionary
         self.dict_len = len(dictionary) # 7120
         self.embedding_dim = args.embedding_dim # 512
         self.hidden_size=args.hidden_size # 512
         self.num_layers = args.num_layers # 6
-        self.encoder = nn.LSTM(self.embedding_dim,self.hidden_size//2,self.num_layers,batch_first=True,bidirectional=True)
+        self.encoder = nn.LSTM(self.embedding_dim,self.hidden_size,self.num_layers,batch_first=True,bidirectional=True)
         self.decoder = nn.LSTM(self.embedding_dim,self.hidden_size,self.num_layers,batch_first=True)
         self.embedding = nn.Linear(self.dict_len,self.hidden_size)
-        self.linear = nn.Sequential(
-            nn.Linear(self.hidden_size*2,self.hidden_size),
-            nn.Dropout(0.1),
-            nn.ReLU(),
-            nn.Linear(self.hidden_size,self.dict_len)
-        )
+        self.linear = nn.Linear(self.hidden_size*2,self.dict_len)
         # self.middle = nn.Linear(4 * self.num_layers * self.embedding_dim, 2* self.num_layers * self.embedding_dim)
         self.device = args.device
-        self.head_num = 1
-        self.head_dim = self.embedding_dim//self.head_num
         ##############################################################################
         #                              END OF YOUR CODE                              #
         ##############################################################################
@@ -202,36 +194,46 @@ class Seq2SeqModel(BaseModel):
         # print('length',leng)
         src_raw = F.one_hot(source,num_classes=self.dict_len).to(torch.float)
         src_embedded = self.embedding(src_raw)# batch, length, embedded_dim
-        # print('src_embedded.shape',src_embedded.shape)
+        # print(src_embedded.shape)
         out,(h,c) = self.encoder(src_embedded) # h: num_layer * 2, batch, embedding_dim
-        # out = (out[...,:self.embedding_dim]+out[...,self.embedding_dim:2*(self.embedding_dim)])/2
+        out = (out[...,:self.embedding_dim]+out[...,self.embedding_dim:2*(self.embedding_dim)])/2
         # print('out.shape',out.shape)
         # print('encoder,h.shape',h.shape)
         # hc = torch.cat((h.transpose(0,1).reshape(batch,-1),c.transpose(0,1).reshape(batch,-1)),dim=1)
+        # print('hc.shape',hc.shape)
 
         # hc_in = self.middle(hc).reshape(batch,self.num_layers * 2,-1)
         # print('c.shape',c.shape)
-        h_in, c_in = h.contiguous().reshape(self.num_layers,-1,self.hidden_size),c.contiguous().reshape(self.num_layers,-1,self.hidden_size)
+        h_in, c_in = c[:self.num_layers,:,:], c[self.num_layers:,:,:]
         # print('h_in.shape',h_in.shape)
         # print('c_in.shape',c_in.shape)
+        h_in = h_in.contiguous()
+        c_in = c_in.contiguous()
+        # print(h_in.shape)
         # hidden state pass through decoder to get outputs
         prev_raw = F.one_hot(prev_outputs,num_classes=self.dict_len).to(torch.float)
         prev_embedded = self.embedding(prev_raw)# batch, length, embedded_dim
-        # print('prev_raw.shape',prev_raw.shape)
-        final_out,_ = self.decoder(prev_embedded,(h_in,c_in)) # 
-        # print('final_out.shape',final_out.shape)
+        final_out,_ = self.decoder(prev_embedded,(h_in,c_in)) # h: num_layer, batch, embedding_dim
         # attention
-        out_reshaped = out.reshape([batch*self.head_num,leng,self.head_dim])
-        final_out_reshaped = final_out.reshape([batch*self.head_num,leng,self.head_dim])
-        att_scores = torch.einsum('bid,bjd->bij',final_out_reshaped,out_reshaped)
-        new_h_att_sc = F.softmax(att_scores,dim=-1) # bij * vj
-        new_h_att = torch.einsum('bij,bjd->bid',new_h_att_sc,out_reshaped)
-        new_h_att = new_h_att.reshape([batch,leng,self.embedding_dim])
-        # print('new_h_att.shape',new_h_att.shape)
+        # h_att = torch.zeros([batch,leng,self.hidden_size]).to(self.device)
+        # for i in range(prev_embedded.shape[1]):
+        #     # print(final_out[:,i:i+1,...].shape)
+        #     # print(out.shape)
+        #     att_scores = final_out[:,i:i+1,...] * out
+        #     # print('att_scores',att_scores)
+        #     att_scores = F.softmax(att_scores,dim=1)
+        #     # print((att_scores * out[i]).shape)
+        #     h_att[:,i,:] = (att_scores * out).sum(dim=1)
+            # print(h_att.shape)
+            # assert False
+        new_h_att_sc = final_out.unsqueeze(2) * out.unsqueeze(1)
+        new_h_att_sc = F.softmax(new_h_att_sc,dim=2)
+        new_h_att = (new_h_att_sc * out.unsqueeze(1)).sum(dim=2)
         # print(h_att)
         # print(h_att.shape)
         # print(final_out.shape)
         information = torch.cat((new_h_att,final_out),dim=2)
+        
         # print('decoder:h.shape',h.shape)
         logits = self.linear(information)
         # raise NotImplementedError()
@@ -281,7 +283,7 @@ class Seq2SeqModel(BaseModel):
                             ),dim=0)
         else:
             inputs = torch.cat((torch.tensor([self.dict.bos()],dtype=torch.long),inputs[:-1]),dim=0)
-        # print('inpts',inputs)
+        print('inpts',inputs)
         if beam_size == None:
             beam_size = 1
         leng = inputs.shape[0]
@@ -292,10 +294,12 @@ class Seq2SeqModel(BaseModel):
         # print('h.shape',h.shape)
         encoder_out,(h,c) = self.encoder(src_embedded) # h: num_layer * 2, batch, embedding_dim
         # print('encoder_out.shape',encoder_out.shape)
+        encoder_out = (encoder_out[...,:self.embedding_dim]+encoder_out[...,self.embedding_dim:2*(self.embedding_dim)])/2
         # print('c.shape',c.shape)
-        h_in, c_in = h.contiguous().reshape(self.num_layers,self.hidden_size),c.contiguous().reshape(self.num_layers,self.hidden_size)
-       
+        h_in, c_in = c[:self.num_layers,:], c[self.num_layers:,:]
         # print('h_in.shape',h_in.shape)
+        h_in = h_in.contiguous()
+        c_in = c_in.contiguous()
         # print(h_in.shape)
         # hidden state pass through decoder to get outputs
         outputs = self.dict[self.dict.bos()]
@@ -318,17 +322,14 @@ class Seq2SeqModel(BaseModel):
                     continue
                 # print('history.shape',history.shape)
                 final_out,(tupl) = self.decoder(history,(h_in,c_in))
-                out_reshaped = encoder_out.reshape([self.head_num,leng,self.head_dim])
-                final_out_reshaped = final_out.reshape([self.head_num,round,self.head_dim])
-                att_scores = torch.einsum('bid,bjd->bij',final_out_reshaped,out_reshaped)
-                new_h_att_sc = F.softmax(att_scores,dim=-1) # bij * vj
-                new_h_att = torch.einsum('bij,bjd->bid',new_h_att_sc,out_reshaped)
-                new_h_att = new_h_att.reshape([round,self.embedding_dim])
+                new_h_att_sc = final_out[-1:,:] * encoder_out
+                new_h_att_sc = F.softmax(new_h_att_sc,dim=0)
+                new_h_att = (new_h_att_sc * encoder_out).sum(dim=0)
                 # print('1',new_h_att)
                 # print('2',final_out[-1])
                 # print(new_h_att.shape)
                 # print(final_out.shape)
-                logits = self.linear(torch.cat((new_h_att[-1],final_out[-1]),dim=0))
+                logits = self.linear(torch.cat((new_h_att,final_out[-1]),dim=0))
                 logits = F.log_softmax(logits,dim=-1) # log prob
                 for _ in range(beam_size):
                     ind = torch.argmax(logits,dim=0).item()

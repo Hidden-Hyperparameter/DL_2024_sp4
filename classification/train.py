@@ -24,6 +24,7 @@ def get_args():
     parser.add_argument("--save-interval", default=1, type=int)
     parser.add_argument("--save-dir", default=os.path.join(curdir, "models"))
     parser.add_argument("--total-updates", default=50000, type=int)
+    parser.add_argument("--device", default='cuda:0', type=str)
     parser.add_argument(
         '--gradient-accumulation-steps',
         type=int,
@@ -37,7 +38,7 @@ def get_args():
 
 def train(args):
     os.makedirs(args.save_dir, exist_ok=True)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = args.device#"cuda" if torch.cuda.is_available() else "cpu"
 
     train_set = CLSDataset(device=device)
     train_loader = DataLoader(train_set,

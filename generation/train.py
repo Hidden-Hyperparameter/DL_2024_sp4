@@ -66,7 +66,8 @@ def train(args):
                               batch_size=args.batch_size,
                               collate_fn=train_set.collate_fn,
                               shuffle=True)
-
+    if hasattr(model,'date'):
+        print(f'training model at {model.date}')
     # evaluate(model, valid_set)
     for epoch in range(args.num_epoch):
         model.train()

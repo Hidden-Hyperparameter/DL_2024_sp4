@@ -45,16 +45,15 @@ class LMModel(nn.Module):
         ##############################################################################
         #                  TODO: You need to complete the code here                  #
         ##############################################################################
-        import time
-        self.date = time.strftime(r'%m%d-%H%M')
         self.embed_dim = args.embedding_dim
         self.device = args.device
         self.embed_tokens = nn.Embedding(len(dictionary),
                                     self.embed_dim, self.padding_idx)
-        self.num_attns = 8
+        
+        self.num_attns = 6
         self.self_attns = nn.ModuleList([Attention(
             embed_dim=self.embed_dim,
-            num_heads=2,
+            num_heads=8,
             dropout=0.1,
         ) for _ in range(self.num_attns)])
 
@@ -68,26 +67,22 @@ class LMModel(nn.Module):
 
         self.fcs = nn.ModuleList([
            nn.Sequential(
-                nn.Linear(self.embed_dim,self.embed_dim),
+                nn.Linear(self.embed_dim, 1024),
                 nn.ReLU(),
-                nn.Dropout(0.2),
-                nn.Linear(self.embed_dim, self.embed_dim),
+                nn.Dropout(0.1),
+                nn.Linear(1024, self.embed_dim),
            ) for _ in range(self.num_attns)
         ])
         # self.fc2 = nn.Linear(config.ffn_dim, )
         self.final_layer_norms = nn.ModuleList(
             [LayerNorm(self.embed_dim) for _ in range(self.num_attns)]
         )
-        self.out_proj = nn.Sequential(
-            nn.Linear(self.embed_dim,len(self.dictionary)),
-            # nn.Dropout(0.2),
-            # nn.ReLU(),
-            # nn.Linear(self.embed_dim,len(self.dictionary))
-        )
-        self.layernorm_embedding = LayerNorm(self.embed_dim)
+        self.out_proj = nn.Linear(self.embed_dim,len(self.dictionary))
 
-        self.layer_norm = LayerNorm(self.embed_dim) 
-        
+        self.embed_positions = LearnedPositionalEmbedding(100,self.embed_dim,self.padding_idx,0)
+        self.layernorm_embedding = LayerNorm(
+            self.embed_dim)
+
         def _init_weights(module):
             std = 0.02
             if isinstance(module, nn.Linear):
@@ -101,28 +96,8 @@ class LMModel(nn.Module):
                 if module.padding_idx is not None:
                     module.weight.data[module.padding_idx].zero_()
         self.apply(_init_weights)
-       
         self.embed_scale = nn.Parameter(torch.tensor([1.0]))
-
-
-        # position embedding
-        self.position_embedding = nn.Embedding(100,embedding_dim=self.embed_dim,padding_idx=1).requires_grad_(False)
-        def _init_weight_sin(out: nn.Parameter):
-            """Identical to the XLM create_sinusoidal_embeddings except features are not interleaved.
-            The cos features are in the 2nd half of the vector. [dim // 2:]
-            """
-            n_pos, dim = out.shape
-            position_enc = np.array(
-                [[pos / np.power(10000, 2 * (j // 2) / dim) for j in range(dim)]
-                for pos in range(n_pos)])
-            out[:, 0:dim // 2] = torch.FloatTensor(np.sin(
-                position_enc[:, 0::2]))  # This line breaks for odd n_pos
-            out[:, dim // 2:] = torch.FloatTensor(np.cos(position_enc[:, 1::2]))
-            out.detach_()
-            out.requires_grad = False
-            return out
-        self.position_embedding.weight = _init_weight_sin(self.position_embedding.weight)
-        
+        self.layer_norm = LayerNorm(self.embed_dim) 
         ##############################################################################
         #                              END OF YOUR CODE                              #
         ##############################################################################
@@ -166,14 +141,8 @@ class LMModel(nn.Module):
         
         decoder_input_ids, decoder_padding_mask, causal_mask=__prepare_decoder_inputs(source)
 
-        # add position embeddings
-        bsz,seq_len = source.shape[:2]
-
-        positions = torch.arange(seq_len,
-                                 dtype=torch.long,
-                                 device=self.position_embedding.weight.device)
-        positions = self.position_embedding(positions)
-
+        # add position encodings
+        positions = self.embed_positions(decoder_input_ids)
         x = self.embed_tokens(decoder_input_ids) *self.embed_scale + positions
         x = self.layernorm_embedding(x)
         x = F.dropout(x, p=self.dropout, training=self.training)
@@ -291,9 +260,10 @@ class Seq2SeqModel(nn.Module):
             max_position_embeddings=100,
             n_embed=args.embedding_dim,
             n_layer=args.num_layers,
-            n_head=8,
+            n_head=4,
             pad_token_id=self.padding_idx,
             ffn_dim=args.hidden_size,
+            attention_dropout = 0.1
         )
         embed_tokens = nn.Embedding(self.config.vocab_size,
                                     self.config.n_embed, self.padding_idx)
@@ -817,7 +787,7 @@ class Attention(nn.Module):
     ):
         super().__init__()
         self.embed_dim = embed_dim
-        self.num_heads = num_heads
+        self.num_heads = num_heads = 1
         self.dropout = dropout
         self.head_dim = embed_dim // num_heads 
         assert self.head_dim * num_heads == self.embed_dim, "embed_dim must be divisible by num_heads"
@@ -907,7 +877,7 @@ class Attention(nn.Module):
         attn_output = torch.einsum('bjd,bij->bid',value,eij_new)#.reshape(batch_size,seq_len2,-1)
         # out[i] = value[j] attn_score[ij]
         # print('attn_output.shape',attn_output.shape)
-        attn_output = self.out_proj(attn_output.transpose(0,1).reshape(seq_len2,batch_size,embed_dim))
+        attn_output = self.out_proj(attn_output).transpose(0,1)
         # print(attn_output.shape)
         ##############################################################################
         #                              END OF YOUR CODE                              #
