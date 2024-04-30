@@ -45,8 +45,8 @@ class LMModel(nn.Module):
         ##############################################################################
         #                  TODO: You need to complete the code here                  #
         ##############################################################################
-        import time
-        self.date = time.strftime(r'%m%d-%H%M')
+        # import time
+        # self.date = time.strftime(r'%m%d-%H%M')
         self.embed_dim = args.embedding_dim
         self.device = args.device
         self.embed_tokens = nn.Embedding(len(dictionary),
@@ -302,13 +302,8 @@ class Seq2SeqModel(nn.Module):
         self.out_proj = nn.Linear(args.embedding_dim, len(dictionary))
 
     def logits(self, source, prev_outputs, **unused):
-        # print('in function logits:')
-        # print(source.shape)
-        # print(prev_outputs.shape)
         hidden = self.endecoder(source, prev_outputs)
         logits = self.out_proj(hidden)
-        # print(hidden.shape)
-        # print(logits.shape)
         return logits
 
     def get_loss(self, source, prev_outputs, target, reduce=True, **unused):
@@ -761,9 +756,7 @@ class TransformerDecoder(nn.Module):
             decoder_padding_mask: for ignoring pad tokens
             decoder_causal_mask: mask the future tokens
         """
-        # print(encoder_hidden_states.shape)
-        # print(input_ids.shape)
-        # print(encoder_padding_mask.shape)
+
         # embed positions
         positions = self.embed_positions(input_ids)
 
@@ -819,7 +812,7 @@ class Attention(nn.Module):
         self.embed_dim = embed_dim
         self.num_heads = num_heads
         self.dropout = dropout
-        self.head_dim = embed_dim // num_heads 
+        self.head_dim = embed_dim // num_heads
         assert self.head_dim * num_heads == self.embed_dim, "embed_dim must be divisible by num_heads"
         self.scaling = self.head_dim**-0.5
 
@@ -831,9 +824,6 @@ class Attention(nn.Module):
         self.cache_key = "encoder_decoder" if self.encoder_decoder_attention else "self"
 
     def _shape(self, tensor, seq_len, bsz):
-        # tensor.shape: len, batch, d
-        # return shape: len, batch*h, d/h
-        # print(f'I have {self.num_heads} heads') # 8
         return tensor.contiguous().view(seq_len, bsz * self.num_heads,
                                         self.head_dim).transpose(0, 1)
 

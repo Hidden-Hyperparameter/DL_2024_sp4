@@ -37,7 +37,7 @@ class LMModel(BaseModel):
         #                              END OF YOUR CODE                              #
         ##############################################################################
 
-    def logits(self, source:torch.Tensor, **unused):
+    def logits(self, source, **unused):
         """
         Compute the logits for the given source.
 
@@ -73,14 +73,8 @@ class LMModel(BaseModel):
         return logits
 
     def get_loss(self, source, target, reduce=True, **unused):
-        # print('target.shape',target.shape)
-        # print('source',source[0])
-        # print('target',target[0])
         logits = self.logits(source)
-        # print('shape 1',logits.shape)
         lprobs = F.log_softmax(logits, dim=-1).view(-1, logits.size(-1))
-        # print('shape 2',lprobs.shape)
-        # print('target shape',target.shape)
         return F.nll_loss(
             lprobs,
             target.view(-1),
@@ -145,7 +139,7 @@ class LMModel(BaseModel):
         ##############################################################################
         #                              END OF YOUR CODE                              #
         ##############################################################################
-        # outputs = ""
+        outputs = ""
         return outputs
 
 
@@ -246,9 +240,6 @@ class Seq2SeqModel(BaseModel):
     def get_loss(self, source, prev_outputs, target, reduce=True, **unused):
         logits = self.logits(source, prev_outputs)
         lprobs = F.log_softmax(logits, dim=-1).view(-1, logits.size(-1))
-        # print(source[0])
-        # print(prev_outputs[0])
-        # print(target[0])
         return F.nll_loss(
             lprobs,
             target.view(-1),
