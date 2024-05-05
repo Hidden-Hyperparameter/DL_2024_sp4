@@ -28,7 +28,7 @@ def get_args():
     parser.add_argument(
         '--gradient-accumulation-steps',
         type=int,
-        default=1,
+        default=32,
         help=
         "Number of updates steps to accumualte before performing a backward/update pass."
     )
@@ -63,6 +63,8 @@ def train(args):
                 loss = model.get_loss(**samples)
                 loss.backward()
                 if (step + 1) % args.gradient_accumulation_steps == 0:
+                    # print(model.kv_proj.weight.mean().item())
+                    # print(model.kv_proj.weight.grad.mean().item())
                     optimizer.step()  # We have accumulated enought gradients
                     model.zero_grad()
                     global_step += 1

@@ -56,7 +56,15 @@ class CLSDataset(Dataset):
         ##############################################################################
         #                  TODO: You need to complete the code here                  #
         ##############################################################################
-        raise NotImplementedError()
+        text = (self.pairs[index][0])
+        return {
+            'text':text,
+            'length':len(text),
+            'question':(self.pairs[index][1]),
+            'choice':self.pairs[index][2],
+            'target':self.pairs[index][3],
+        }
+        # raise NotImplementedError()
         ##############################################################################
         #                              END OF YOUR CODE                              #
         ##############################################################################
@@ -79,7 +87,14 @@ class CLSDataset(Dataset):
         ##############################################################################
         #                  TODO: You need to complete the code here                  #
         ##############################################################################
-        raise NotImplementedError()
+        dic = {}
+        for k in samples[0]:
+            dic[k+'s']=[]
+        for sample in samples:
+            for k in sample:
+                dic[k+'s'].append(sample[k])
+        dic['targets']=torch.tensor(dic['targets'],dtype=torch.long)
+        return dic
         ##############################################################################
         #                              END OF YOUR CODE                              #
         ##############################################################################

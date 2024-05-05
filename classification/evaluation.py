@@ -12,7 +12,7 @@ from model import *
 @torch.no_grad()
 def evaluate(model, dataset):
     model.eval()
-    batch_size = 64
+    batch_size = 4
     dataloader = DataLoader(dataset,
                             batch_size=batch_size,
                             collate_fn=dataset.collate_fn)
@@ -21,8 +21,13 @@ def evaluate(model, dataset):
     hit = 0
     for samples in tqdm(dataloader, desc="validation"):
         targets = samples.pop("targets")
-
+        # print('targets.shape',targets.shape)
+        # print('targets.dtype',targets.dtype)
+        # print(targets)
         logits = model.logits(**samples)
+        # print('logits.shape',logits.shape)
+        # print('logits.dtype',logits.dtype)`
+        # print(logits)
         predict_label = logits.argmax(dim=-1)
         hit += (predict_label == targets).sum()
         losses.append(F.cross_entropy(logits, targets).item())

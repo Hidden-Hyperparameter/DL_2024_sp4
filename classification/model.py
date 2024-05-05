@@ -12,7 +12,12 @@ class Net(nn.Module):
         ##############################################################################
         #                  TODO: You need to complete the code here                  #
         ##############################################################################
-        self.load_llm()
+        self.largeNum = 122753
+        self.device = args.device
+        global llm
+        self.path = '/ssdshare/LLMs/MiniCPM-2B-dpo-bf16/'
+        llm = self.load_llm().to(self.device)
+        self.useless = nn.Parameter(torch.zeros(1,requires_grad=True))
         ##############################################################################
         #                              END OF YOUR CODE                              #
         ##############################################################################
@@ -21,9 +26,10 @@ class Net(nn.Module):
         ##############################################################################
         #                  TODO: You need to complete the code here                  #
         ##############################################################################
-        import torch
-        from transformers import AutoModelForCausalLM
-        self.llm = AutoModelForCausalLM.from_pretrained('openbmb/MiniCPM-2B-dpo-bf16',trust_remote_code=True,torch_dtype=torch.bfloat16)
+        from transformers import AutoModelForCausalLM,AutoTokenizer
+        self.tokenizer = AutoTokenizer.from_pretrained(self.path)
+        self.tokenizer.add_special_tokens({'pad_token': '<pad>'})
+        return AutoModelForCausalLM.from_pretrained(self.path,trust_remote_code=True,torch_dtype=torch.bfloat16).requires_grad_(False)
         ##############################################################################
         #                              END OF YOUR CODE                              #
         ##############################################################################
@@ -42,8 +48,45 @@ class Net(nn.Module):
         # ##############################################################################
         #                  TODO: You need to complete the code here                  #
         ##############################################################################
-        return self.llm.logits(**kwargs)
-        # raise NotImplementedError()
+        def format_choices(r:list[str]):
+            out = []
+            for i,c in enumerate(r):
+                c = c.replace('A','').replace('B','').replace('C','').replace('D','').replace('.','').strip()
+                out.append('ABCD'[i]+'. '+c)
+            return '\n\t\t'.join(out)
+        def cnt_sentence(s:str):
+            def cnt_num(s:str,c:str):
+                return len(s.split(c))-1
+            return sum([cnt_num(s,c) for c in ['。','！','？']])
+        logits = []
+        for i in range(len(kwargs['texts'])):
+            text = kwargs['texts'][i]
+            inputs = f"""
+        我在阅读一个文段：
+        -----------
+        {text}
+        -----------
+        我首先数了一下：
+        -----------
+        这段话共有{cnt_sentence(text)}句话。
+        -----------
+        我在思考这个问题：
+                {(kwargs['questions'][i])}
+        我有几个可能的选项：
+                {format_choices(kwargs['choices'][i])}
+        从A,B,C,D中，我决定选择：""" 
+            # print(inputs)
+            source = self.tokenizer.encode(inputs, padding=True)
+            source = torch.tensor(source).to(self.device).unsqueeze(0)
+            logit = llm(source).logits[0]
+            # print(logit)
+            # print(self.tokenizer.decode(logit.argmax(-1).tolist()))
+            logit = logit[-1]
+            l_logits = [logit[95353],logit[95378],logit[95357],logit[95371]]
+            # print(l_logits)
+            # exit()
+            logits.append(l_logits)
+        return F.softmax(torch.tensor(logits),dim=1)
         ##############################################################################
         #                              END OF YOUR CODE                              #
         ##############################################################################
@@ -63,7 +106,9 @@ class Net(nn.Module):
         # ##############################################################################
         #                  TODO: You need to complete the code here                  #
         ##############################################################################
-        raise NotImplementedError()
+        targets = kwargs['targets']
+        logits = self.logits(**kwargs)
+        return F.cross_entropy(logits, targets)
         ##############################################################################
         #                              END OF YOUR CODE                              #
         ##############################################################################

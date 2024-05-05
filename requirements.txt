@@ -1,4 +1,8 @@
 huggingface-hub==0.22.2
+numpy==1.22.2
+tokenizers==0.19.1
+torch==2.1.0
+tqdm==4.66.1
 transformers==4.40.1
-flash-attn==2.5.7
 peft==0.10.0
+flash-attn==2.5.7
