@@ -161,7 +161,7 @@ class Seq2SeqModel(BaseModel):
         self.decoder = nn.LSTM(self.embedding_dim,self.hidden_size,self.num_layers,batch_first=True)
         self.embedding = nn.Linear(self.dict_len,self.hidden_size)
         self.linear = nn.Sequential(
-            nn.Linear(self.hidden_size,self.hidden_size),
+            nn.Linear(self.hidden_size*2,self.hidden_size),
             nn.Dropout(0.1),
             nn.ReLU(),
             nn.Linear(self.hidden_size,self.dict_len)
@@ -215,13 +215,19 @@ class Seq2SeqModel(BaseModel):
         final_out,_ = self.decoder(prev_embedded,(h_in,c_in)) # 
         # print('final_out.shape',final_out.shape)
         # attention
+        out_reshaped = out.reshape([batch*self.head_num,leng,self.head_dim])
+        final_out_reshaped = final_out.reshape([batch*self.head_num,leng,self.head_dim])
+        att_scores = torch.einsum('bid,bjd->bij',final_out_reshaped,out_reshaped)
+        new_h_att_sc = F.softmax(att_scores,dim=-1) # bij * vj
+        new_h_att = torch.einsum('bij,bjd->bid',new_h_att_sc,out_reshaped)
+        new_h_att = new_h_att.reshape([batch,leng,self.embedding_dim])
         # print('new_h_att.shape',new_h_att.shape)
         # print(h_att)
         # print(h_att.shape)
         # print(final_out.shape)
-        # information = torch.cat((new_h_att,final_out),dim=2)
+        information = torch.cat((new_h_att,final_out),dim=2)
         # print('decoder:h.shape',h.shape)
-        logits = self.linear(final_out)
+        logits = self.linear(information)
         # raise NotImplementedError()
         # logits = logits.transpose(1,2)
         # print(logits.shape)

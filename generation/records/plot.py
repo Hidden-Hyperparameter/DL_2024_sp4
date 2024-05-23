@@ -1,6 +1,8 @@
+import re
+import numpy as np
+import matplotlib.pyplot as plt
 def plot(texts:list[str],place:str):
     checkpoint = 0
-    import re
     train_losses = {}
     valid_losses = {}
     pples = {}
@@ -39,6 +41,48 @@ def plot(texts:list[str],place:str):
     plt.plot(x,pples/100,label='perplexity(/100)')
     plt.legend()
     # plt.show()
+    plt.savefig(place)
+def not_save(texts):
+    checkpoint = 0
+    train_losses = {}
+    valid_losses = {}
+    pples = {}
+    epoch = 0
+    for cell in texts:
+        print(cell)
+        if 'Loss' in cell:
+            # print(cell)
+            epoch = int(re.findall(r'Epoch:\ (\d+)\,',cell)[0])
+            train_loss = float(re.findall(r'Loss:\ (\d+\.\d+)\,',cell)[0])
+            train_losses[epoch]=train_loss
+        elif 'loss' in cell:
+            ppl = float(re.findall(r'ppl:\ (\d+\.\d+)',cell)[0])
+            valid_loss = float(re.findall(r'loss:\ (\d+\.\d+)\,',cell)[0])
+            valid_losses[epoch]=valid_loss
+            pples[epoch]=ppl
+    if len(train_losses) != len(valid_losses):
+        del train_losses[epoch]
+    assert len(pples) == len(train_losses),(len(train_losses),len(pples))
+    assert len(train_losses) == len(valid_losses),(len(valid_losses),len(train_losses))
+
+
+    x = np.linspace(1,len(pples),len(pples))
+    train_losses = np.array([train_losses[i] for i in x])
+    valid_losses = np.array([valid_losses[i] for i in x])
+    pples = np.array([pples[i] for i in x])
+    N = 192
+    train_losses = train_losses[:N]
+    valid_losses = valid_losses[:N]
+    pples = pples[:N]
+    x = x[:N]
+    # open('./1.txt','w').write(str(train_losses.tolist()))
+    # plt.plot(x,train_losses,label='train loss')
+    plt.plot(x,valid_losses,label='valid loss')
+    # plt.plot(x,pples/100,label='perplexity(/100)')
+def plot_2(text1,text2,place):
+    not_save(text1)
+    not_save(text2)
+    plt.legend()
     plt.savefig(place)
 if __name__ == '__main__':
     import json

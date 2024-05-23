@@ -12,11 +12,13 @@ class Net(nn.Module):
         ##############################################################################
         #                  TODO: You need to complete the code here                  #
         ##############################################################################
-        self.largeNum = 122753
         self.device = args.device
+        global tokenizer
         global llm
-        self.path = '/ssdshare/LLMs/MiniCPM-2B-dpo-bf16/'
-        llm = self.load_llm().to(self.device)
+        # self.path = '/ssdshare/LLMs/MiniCPM-2B-dpo-bf16/'
+        tokenizer,llm = self.load_llm()
+        # tokenizer.to(self.device)
+        llm.to(self.device)
         self.useless = nn.Parameter(torch.zeros(1,requires_grad=True))
         ##############################################################################
         #                              END OF YOUR CODE                              #
@@ -26,10 +28,17 @@ class Net(nn.Module):
         ##############################################################################
         #                  TODO: You need to complete the code here                  #
         ##############################################################################
-        from transformers import AutoModelForCausalLM,AutoTokenizer
-        self.tokenizer = AutoTokenizer.from_pretrained(self.path)
-        self.tokenizer.add_special_tokens({'pad_token': '<pad>'})
-        return AutoModelForCausalLM.from_pretrained(self.path,trust_remote_code=True,torch_dtype=torch.bfloat16).requires_grad_(False)
+        import torch
+        from tqdm import tqdm
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+        path = "models/checkpoint/"
+        global tokenizer
+        global llm
+        tokenizer = AutoTokenizer.from_pretrained(path)
+        llm = AutoModelForCausalLM.from_pretrained(
+            path, torch_dtype=torch.bfloat16, device_map="cuda", trust_remote_code=True
+        )
+        return tokenizer,llm
         ##############################################################################
         #                              END OF YOUR CODE                              #
         ##############################################################################
@@ -51,9 +60,9 @@ class Net(nn.Module):
         def format_choices(r:list[str]):
             out = []
             for i,c in enumerate(r):
-                c = c.replace('A','').replace('B','').replace('C','').replace('D','').replace('.','').strip()
+                c = c.replace('A','').replace('B','').replace('C','').replace('D','').replace('.','').replace('．','').strip()
                 out.append('ABCD'[i]+'. '+c)
-            return '\n\t\t'.join(out)
+            return '|'.join(out)
         def cnt_sentence(s:str):
             def cnt_num(s:str,c:str):
                 return len(s.split(c))-1
@@ -61,32 +70,22 @@ class Net(nn.Module):
         logits = []
         for i in range(len(kwargs['texts'])):
             text = kwargs['texts'][i]
-            inputs = f"""
-        我在阅读一个文段：
-        -----------
-        {text}
-        -----------
-        我首先数了一下：
-        -----------
-        这段话共有{cnt_sentence(text)}句话。
-        -----------
-        我在思考这个问题：
-                {(kwargs['questions'][i])}
-        我有几个可能的选项：
-                {format_choices(kwargs['choices'][i])}
-        从A,B,C,D中，我决定选择：""" 
+            inputs = f"""文段#{text}*句子个数#共{cnt_sentence(text)}句话*题目#{(kwargs['questions'][i])}*选项#{format_choices(kwargs['choices'][i])}""" 
             # print(inputs)
-            source = self.tokenizer.encode(inputs, padding=True)
-            source = torch.tensor(source).to(self.device).unsqueeze(0)
-            logit = llm(source).logits[0]
-            # print(logit)
-            # print(self.tokenizer.decode(logit.argmax(-1).tolist()))
-            logit = logit[-1]
-            l_logits = [logit[95353],logit[95378],logit[95357],logit[95371]]
-            # print(l_logits)
-            # exit()
-            logits.append(l_logits)
-        return F.softmax(torch.tensor(logits),dim=1)
+            if len(inputs) > 1500:
+                text = text[:-1-(len(inputs)-1500)]
+                inputs = f"""文段#{text}*句子个数#共{cnt_sentence(text)}句话*题目#{(kwargs['questions'][i])}*选项#{format_choices(kwargs['choices'][i])}""" 
+            res, history = llm.chat(tokenizer, query=f"<用户>{inputs}<AI>", max_length=1501)
+            if len(res)>1:
+                open('./log.log','a').write(f'question:\n\n{inputs}\n\nanswer:<{res}>\n\n')
+            res=res[0].upper()
+            if res in 'ABCD':
+                l = [0.001,0.001,0.001,0.001]
+                l['ABCD'.index(res)]+=0.996
+                logits.append(l.copy())
+            else:                
+                logits.append([0.28,0.25,0.25,0.25])
+        return torch.tensor(logits)
         ##############################################################################
         #                              END OF YOUR CODE                              #
         ##############################################################################
@@ -109,6 +108,13 @@ class Net(nn.Module):
         targets = kwargs['targets']
         logits = self.logits(**kwargs)
         return F.cross_entropy(logits, targets)
-        ##############################################################################
+        #######################################################`#######################
         #                              END OF YOUR CODE                              #
         ##############################################################################
+
+if __name__ == '__main__':
+    class Args:
+        device = 'cuda'
+    args = Args()
+    model = Net(args)
+    torch.save(model,'./models/cls_best.pt')
