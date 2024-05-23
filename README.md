@@ -1,3 +1,7 @@
+# Notice!
+
+Since the Git LFS reaches its limit, the models are **NOT** uploaded.
+
 # Starter Code for Deep Learning Coding Project 4
 
 ## Acknowledgement
